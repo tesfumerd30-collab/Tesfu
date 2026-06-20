@@ -1,89 +1,615 @@
 <!DOCTYPE html>
-<html lang="am">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>ኢትዮጵያ ዳማ - 100% PRO</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  :root { --bg: #182533; --board-dark: #8b5a38; --board-light: #b58863; }
-  body { background: var(--bg); color: white; display: flex; flex-direction: column; align-items: center; font-family: sans-serif; margin: 0; padding: 10px; }
-  .controls { display: flex; gap: 5px; margin-bottom: 10px; }
-  input { padding: 8px; font-size: 14px; border-radius: 5px; border: none; text-align: center; }
-  button { padding: 8px 15px; font-size: 14px; background: #2ecc71; color: white; border: none; border-radius: 5px; cursor: pointer; }
-  #status-box { padding: 10px; background: rgba(0,0,0,0.3); border-radius: 5px; margin-bottom: 10px; font-weight: bold; }
-  #board { display: grid; grid-template-columns: repeat(8, 40px); grid-template-rows: repeat(8, 40px); border: 4px solid #2c3e50; }
-  .cell { width: 40px; height: 40px; display: flex; justify-content: center; align-items: center; position: relative; }
-  .dark { background: var(--board-dark); }
-  .light { background: var(--board-light); }
-  .piece { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; z-index: 2; }
-  .red { background: #c0392b; }
-  .black { background: #1c2833; }
-  .king { border: 2px solid #f1c40f; }
-  .selected { outline: 3px solid #3498db; }
-  .hint { position: absolute; width: 10px; height: 10px; background: #2ecc71; border-radius: 50%; z-index: 1; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ethiopian Dama - Production Architecture</title>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f0f11;
+            --surface-color: #16161a;
+            --board-light: #e6d7b8;
+            --board-dark: #aa7a44;
+            --red-piece: #e53935;
+            --black-piece: #212121;
+            --accent-color: #00e676;
+            --select-color: #ffeb3b;
+            --text-main: #ffffff;
+            --text-muted: #72727e;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 12px;
+            overflow: hidden;
+        }
+
+        #lobby-container, #game-container {
+            width: 100%;
+            max-width: 420px;
+            background-color: var(--surface-color);
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .lobby-title {
+            font-size: 1.8rem;
+            font-weight: 800;
+            text-align: center;
+            color: var(--accent-color);
+            letter-spacing: 1px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        input {
+            background-color: #222227;
+            border: 1px solid #32323d;
+            color: white;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            text-align: center;
+            outline: none;
+        }
+
+        input:focus { border-color: var(--accent-color); }
+
+        .meta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #game-status { font-weight: 700; font-size: 1.05rem; }
+        #room-display { font-size: 0.85rem; color: var(--text-muted); background: #222227; padding: 4px 8px; border-radius: 4px; }
+        #role-indicator { font-size: 0.85rem; font-weight: 600; padding: 4px 10px; border-radius: 12px; text-transform: uppercase; }
+
+        .role-red { background-color: var(--red-piece); color: #fff; }
+        .role-black { background-color: #000; color: #fff; border: 1px solid #333; }
+        .role-spectator { background-color: #333; color: var(--text-muted); }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        .square {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .square.light { background-color: var(--board-light); }
+        .square.dark { background-color: var(--board-dark); }
+        .square.selected::before {
+            content: ''; position: absolute; width: 100%; height: 100%; background: rgba(255, 235, 59, 0.4); z-index: 1;
+        }
+        .square.valid-target::after {
+            content: ''; position: absolute; width: 20px; height: 20px; border-radius: 50%; background-color: var(--accent-color); opacity: 0.8; z-index: 3; pointer-events: none;
+        }
+
+        .piece {
+            width: 82%; height: 82%; border-radius: 50%; cursor: pointer; z-index: 2;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.4), inset 0 -3px 4px rgba(0,0,0,0.4);
+            transition: transform 0.1s ease;
+        }
+        .piece.red-p { background: radial-gradient(circle, #ff5252, #b71c1c); }
+        .piece.black-p { background: radial-gradient(circle, #424242, #111111); border: 1px solid #333; }
+        .piece.king::before {
+            content: '👑'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.1rem; text-shadow: 0 1px 2px #000;
+        }
+
+        button {
+            background-color: #222227; color: var(--text-main); border: 1px solid #32323d;
+            padding: 12px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 1rem;
+            transition: all 0.2s;
+        }
+        button.primary { background-color: var(--accent-color); color: #000; border: none; }
+        button:hover { opacity: 0.9; }
+        .hidden { display: none !important; }
+    </style>
 </head>
 <body>
 
-<div class="controls">
-  <input id="room" placeholder="ክፍል ስም">
-  <button onclick="joinRoom()">Join</button>
-</div>
-<div id="status-box">ክፍል ስም አስገብተው Join ይበሉ</div>
-<div id="board"></div>
+    <div id="lobby-container">
+        <div class="lobby-title">🇪🇹 ETHIOPIAN DAMA</div>
+        <button id="btn-create" class="primary">Create Secure Room</button>
+        <div style="text-align: center; color: var(--text-muted); font-size: 0.85rem;">─── OR JOIN ───</div>
+        <div class="input-group">
+            <input type="text" id="room-input" placeholder="Enter 6-Digit Code" maxlength="6">
+        </div>
+        <button id="btn-join">Join Game Room</button>
+    </div>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
-import { getDatabase, ref, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
+    <div id="game-container" class="hidden">
+        <div id="meta-panel">
+            <div class="meta-row">
+                <div id="game-status">Initializing System...</div>
+                <div id="role-indicator" class="role-spectator">Spectator</div>
+            </div>
+            <div class="meta-row" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #222227;">
+                <div id="room-display">Room: ------</div>
+                <button id="btn-leave" style="padding: 4px 8px; font-size: 0.75rem;">Leave Room</button>
+            </div>
+        </div>
+        <div id="board"></div>
+        <div id="action-panel">
+            <button id="btn-reset" style="width: 100%;">Reset Match State</button>
+        </div>
+    </div>
 
-window.Telegram.WebApp.expand();
-const db = getDatabase(initializeApp({
-  apiKey: "AIzaSyBSnabQTvelViDZZvYLLuHeHJQXnYJ4KLQ",
-  databaseURL: "https://tesfuweb-default-rtdb.firebaseio.com",
-  projectId: "tesfuweb",
-}));
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBSnabQTvelViDZZvYLLuHeHJQXnYJ4KLQ",
+            authDomain: "tesfuweb.firebaseapp.com",
+            databaseURL: "https://tesfuweb-default-rtdb.firebaseio.com",
+            projectId: "tesfuweb",
+            storageBucket: "tesfuweb.firebasestorage.app",
+            messagingSenderId: "422787924248",
+            appId: "1:422787924248:web:6dd331e0bb3a5e24935e6d",
+            measurementId: "G-PETCDTBRXX"
+        };
 
-let myUid = Math.random().toString(36).substring(7);
-let myColor = 0, roomId = null, gameState = null, selected = null, possibleMoves = [];
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        
+        let currentRoomId = null;
+        let sessionNode = null;
+        let myPresenceNode = null;
 
-function initBoard(){ return Array(8).fill().map((_,r)=> Array(8).fill().map((_,c)=> (r+c)%2 ? (r<3?2:(r>4?1:0)) : 0 )); }
+        let localUid = localStorage.getItem('dama_mix_uid');
+        if (!localUid) {
+            localUid = 'usr_' + Math.random().toString(36).substring(2, 15);
+            localStorage.setItem('dama_mix_uid', localUid);
+        }
 
-window.joinRoom = async () => {
-  roomId = document.getElementById("room").value.trim();
-  if(!roomId) return;
-  const roomRef = ref(db, "rooms/" + roomId);
-  await runTransaction(roomRef, (data) => {
-    if (!data) return { board: initBoard(), turn: 1, players: { 1: myUid }, status: 'playing', chainR: -1 };
-    if (!data.players) data.players = {};
-    if (!data.players[1]) data.players[1] = myUid;
-    else if (!data.players[2] && data.players[1] !== myUid) data.players[2] = myUid;
-    return data;
-  });
+        const CELL_EMPTY = 0, PIECE_RED = 1, PIECE_BLACK = 2, KING_RED = 3, KING_BLACK = 4;
+        let serverState = null, selectedRow = null, selectedCol = null, precalculatedMoves = [], playerSide = null;
 
-  onValue(roomRef, (snap) => {
-    gameState = snap.val();
-    if (!gameState) return;
-    myColor = (gameState.players[1] === myUid) ? 1 : ((gameState.players[2] === myUid) ? 2 : 0);
-    render();
-    document.getElementById("status-box").innerText = (myColor ? "ተጫዋች " + myColor : "ተመልካች") + " | ተራ: " + gameState.turn;
-  });
-};
+        // Efficient Grid Initialization Matrix
+        function generateInitialMatrix() {
+            let grid = Array(8).fill(null).map(() => Array(8).fill(CELL_EMPTY));
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if ((r + c) % 2 === 1) {
+                        if (r < 3) grid[r][c] = PIECE_BLACK;
+                        else if (r > 4) grid[r][c] = PIECE_RED;
+                    }
+                }
+            }
+            return grid;
+        }
 
-function render() {
-  const b = document.getElementById("board");
-  b.innerHTML = "";
-  gameState.board.forEach((row, r) => row.forEach((val, c) => {
-    let cell = document.createElement("div");
-    cell.className = "cell " + ((r+c)%2 ? "dark" : "light");
-    if (val !== 0) {
-      let p = document.createElement("div");
-      p.className = "piece " + (val%2 ? "red" : "black") + (val > 2 ? " king" : "");
-      cell.appendChild(p);
-    }
-    b.appendChild(cell);
-  }));
-}
-</script>
+        function createDefaultSessionStructure() {
+            return {
+                board: generateInitialMatrix(),
+                turn: PIECE_RED,
+                playerRed: "",
+                playerBlack: "",
+                forcedContinuousStriker: null,
+                matchStatus: "active"
+            };
+        }
+
+        // --- LOBBY SYSTEMS ---
+        document.getElementById('btn-create').addEventListener('click', () => {
+            const randomRoom = Math.floor(100000 + Math.random() * 900000).toString();
+            connectToRoom(randomRoom, true);
+        });
+
+        document.getElementById('btn-join').addEventListener('click', () => {
+            const inputVal = document.getElementById('room-input').value.trim();
+            if (inputVal.length !== 6) return alert("Enter 6-digit room code.");
+            connectToRoom(inputVal, false);
+        });
+
+        document.getElementById('btn-leave').addEventListener('click', () => {
+            cleanExitCurrentRoom();
+        });
+
+        function cleanExitCurrentRoom() {
+            if (myPresenceNode) { myPresenceNode.remove(); myPresenceNode.onDisconnect().cancel(); }
+            if (sessionNode) {
+                // Transactional role release mechanism upon intent leave
+                sessionNode.transaction(current => {
+                    if (current) {
+                        if (current.playerRed === localUid) current.playerRed = "";
+                        if (current.playerBlack === localUid) current.playerBlack = "";
+                    }
+                    return current;
+                });
+                sessionNode.off();
+            }
+            currentRoomId = null; sessionNode = null; serverState = null; playerSide = null;
+            document.getElementById('game-container').classList.add('hidden');
+            document.getElementById('lobby-container').classList.remove('hidden');
+        }
+
+        function connectToRoom(roomId, isCreator) {
+            currentRoomId = roomId;
+            sessionNode = db.ref(`ethiopian_dama_system/rooms/${currentRoomId}`);
+
+            if (isCreator) {
+                sessionNode.set(createDefaultSessionStructure()).then(() => startRoomPipeline());
+            } else {
+                sessionNode.once('value').then(snap => {
+                    if (!snap.exists()) return alert("Room does not exist.");
+                    startRoomPipeline();
+                });
+            }
+        }
+
+        function startRoomPipeline() {
+            document.getElementById('lobby-container').classList.add('hidden');
+            document.getElementById('game-container').classList.remove('hidden');
+            document.getElementById('room-display').textContent = `Room: ${currentRoomId}`;
+
+            buildDOMGridStructure();
+
+            // 100% Atomic Transaction-Based Role Lock Allocation Engine
+            sessionNode.transaction(current => {
+                if (!current) return current;
+                if (current.playerRed === localUid) return;
+                if (current.playerBlack === localUid) return;
+                
+                if (!current.playerRed || current.playerRed === "") {
+                    current.playerRed = localUid;
+                } else if (!current.playerBlack || current.playerBlack === "") {
+                    current.playerBlack = localUid;
+                }
+                return current;
+            }, (err, committed, snap) => {
+                // Setup Dynamic Presence Handler Node Configuration
+                myPresenceNode = db.ref(`ethiopian_dama_system/rooms/${currentRoomId}/presence/${localUid}`);
+                myPresenceNode.set(true);
+
+                // CRITICAL FIX: onDisconnect watches presence object to prevent atomic overwrites on root state node
+                myPresenceNode.onDisconnect().remove();
+
+                // Setup listener on room configuration presence layer to wipe stale player assignments
+                db.ref(`ethiopian_dama_system/rooms/${currentRoomId}/presence`).on('value', presSnap => {
+                    const activeIds = presSnap.val() ? Object.keys(presSnap.val()) : [];
+                    sessionNode.transaction(room => {
+                        if (room) {
+                            if (room.playerRed && !activeIds.includes(room.playerRed)) room.playerRed = "";
+                            if (room.playerBlack && !activeIds.includes(room.playerBlack)) room.playerBlack = "";
+                        }
+                        return room;
+                    });
+                });
+            });
+
+            // Stream state mutations
+            sessionNode.on('value', snapshot => {
+                let data = snapshot.val();
+                if (!data) return;
+                serverState = data;
+                
+                if (data.playerRed === localUid) playerSide = PIECE_RED;
+                else if (data.playerBlack === localUid) playerSide = PIECE_BLACK;
+                else playerSide = null;
+
+                applyOptimizedDOMDiffing();
+                updateUIMeta();
+            });
+        }
+
+        // --- PERFORMANCE: OPTIMIZED DOM STRUCTURE ENGINE ---
+        function buildDOMGridStructure() {
+            const boardElement = document.getElementById('board');
+            boardElement.innerHTML = '';
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const square = document.createElement('div');
+                    square.className = `square ${(r + c) % 2 === 1 ? 'dark' : 'light'}`;
+                    square.id = `sq-${r}-${c}`;
+                    square.addEventListener('click', () => triggerSquareClick(r, c));
+                    boardElement.appendChild(square);
+                }
+            }
+        }
+
+        function applyOptimizedDOMDiffing() {
+            const matrix = serverState.board;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const square = document.getElementById(`sq-${r}-${c}`);
+                    
+                    // Manage State Selection Highlights
+                    if (selectedRow === r && selectedCol === c) square.classList.add('selected');
+                    else square.classList.remove('selected');
+
+                    // Manage Move Indicators
+                    if (precalculatedMoves.some(m => m.toR === r && m.toC === c)) square.classList.add('valid-target');
+                    else square.classList.remove('valid-target');
+
+                    // Piece DOM Allocation Diffing Check
+                    const cellIdentity = matrix[r][c];
+                    let currentPieceDOM = square.querySelector('.piece');
+
+                    if (cellIdentity === CELL_EMPTY) {
+                        if (currentPieceDOM) currentPieceDOM.remove();
+                    } else {
+                        const isRed = extractPieceOwner(cellIdentity) === PIECE_RED;
+                        const isKing = cellIdentity === KING_RED || cellIdentity === KING_BLACK;
+                        
+                        if (!currentPieceDOM) {
+                            currentPieceDOM = document.createElement('div');
+                            square.appendChild(currentPieceDOM);
+                        }
+                        currentPieceDOM.className = `piece ${isRed ? 'red-p' : 'black-p'} ${isKing ? 'king' : ''}`;
+                    }
+                }
+            }
+        }
+
+        function updateUIMeta() {
+            const statusLabel = document.getElementById('game-status');
+            const roleIndicator = document.getElementById('role-indicator');
+
+            roleIndicator.className = '';
+            if (playerSide === PIECE_RED) { roleIndicator.textContent = "Player Red"; roleIndicator.classList.add('role-red'); }
+            else if (playerSide === PIECE_BLACK) { roleIndicator.textContent = "Player Black"; roleIndicator.classList.add('role-black'); }
+            else { roleIndicator.textContent = "Spectator"; roleIndicator.classList.add('role-spectator'); }
+
+            if (serverState.matchStatus === "won_red") { statusLabel.textContent = "🏆 Red Wins the Match!"; statusLabel.style.color = "var(--accent-color)"; return; }
+            if (serverState.matchStatus === "won_black") { statusLabel.textContent = "🏆 Black Wins the Match!"; statusLabel.style.color = "var(--accent-color)"; return; }
+            if (serverState.matchStatus === "draw") { statusLabel.textContent = "🤝 Finished in Draw"; statusLabel.style.color = "var(--text-muted)"; return; }
+
+            if (serverState.turn === playerSide) {
+                statusLabel.textContent = serverState.forcedContinuousStriker ? "🔴 Chain Strike Enforced!" : "🟢 Your Turn - Move";
+                statusLabel.style.color = "var(--accent-color)";
+            } else {
+                statusLabel.textContent = `Opponent's Turn (${serverState.turn === PIECE_RED ? 'Red' : 'Black'})`;
+                statusLabel.style.color = "var(--text-main)";
+            }
+        }
+
+        // --- SERVER-SIDE HYBRID MOVE VALIDATION CORE ---
+        function isValidCoordinates(r, c) { return r >= 0 && r < 8 && c >= 0 && c < 8; }
+        function extractPieceOwner(type) {
+            if (type === PIECE_RED || type === KING_RED) return PIECE_RED;
+            if (type === PIECE_BLACK || type === KING_BLACK) return PIECE_BLACK;
+            return null;
+        }
+
+        function evaluateCaptureOptionsForCell(matrix, r, c) {
+            const type = matrix[r][c]; const owner = extractPieceOwner(type); if (!owner) return [];
+            const isKing = (type === KING_RED || type === KING_BLACK); const targets = [];
+            const directions = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+            if (isKing) {
+                for (let d of directions) {
+                    let steps = 1, victimFound = null, victimR = -1, victimC = -1;
+                    while (true) {
+                        let targetR = r + d[0] * steps; let targetC = c + d[1] * steps;
+                        if (!isValidCoordinates(targetR, targetC)) break;
+                        let currentPiece = matrix[targetR][targetC];
+                        if (currentPiece === CELL_EMPTY) {
+                            if (victimFound) targets.push({ toR: targetR, toC: targetC, captureR: victimR, captureC: victimC });
+                        } else {
+                            if (extractPieceOwner(currentPiece) === owner) break;
+                            else { if (victimFound) break; else { victimFound = currentPiece; victimR = targetR; victimC = targetC; } }
+                        }
+                        steps++;
+                    }
+                }
+            } else {
+                for (let d of directions) {
+                    let midR = r + d[0], midC = c + d[1], endR = r + d[0] * 2, endC = c + d[1] * 2;
+                    if (isValidCoordinates(endR, endC)) {
+                        let midPiece = matrix[midR][midC], endPiece = matrix[endR][endC];
+                        if (midPiece !== CELL_EMPTY && extractPieceOwner(midPiece) !== owner && endPiece === CELL_EMPTY) {
+                            targets.push({ toR: endR, toC: endC, captureR: midR, captureC: midC });
+                        }
+                    }
+                }
+            }
+            return targets;
+        }
+
+        function gatherAllGlobalCaptures(matrix, turnOwner) {
+            let list = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (extractPieceOwner(matrix[r][c]) === turnOwner) {
+                        let singleCellCaps = evaluateCaptureOptionsForCell(matrix, r, c);
+                        if (singleCellCaps.length > 0) list.push({ r, c, options: singleCellCaps });
+                    }
+                }
+            }
+            return list;
+        }
+
+        function evaluateSlideOptionsForCell(matrix, r, c) {
+            const type = matrix[r][c]; const owner = extractPieceOwner(type); if (!owner) return [];
+            const isKing = (type === KING_RED || type === KING_BLACK); const targets = [];
+            const directions = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+            if (isKing) {
+                for (let d of directions) {
+                    let steps = 1;
+                    while (true) {
+                        let targetR = r + d[0] * steps; let targetC = c + d[1] * steps;
+                        if (!isValidCoordinates(targetR, targetC)) break;
+                        if (matrix[targetR][targetC] === CELL_EMPTY) {
+                            targets.push({ toR: targetR, toC: targetC, captureR: null, captureC: null });
+                        } else break;
+                        steps++;
+                    }
+                }
+            } else {
+                const standardDirections = (owner === PIECE_RED) ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
+                for (let d of standardDirections) {
+                    let targetR = r + d[0]; let targetC = c + d[1];
+                    if (isValidCoordinates(targetR, targetC) && matrix[targetR][targetC] === CELL_EMPTY) {
+                        targets.push({ toR: targetR, toC: targetC, captureR: null, captureC: null });
+                    }
+                }
+            }
+            return targets;
+        }
+
+        function triggerSquareClick(r, c) {
+            if (serverState.matchStatus !== "active" || serverState.turn !== playerSide) return;
+
+            const matrix = serverState.board;
+            const element = matrix[r][c];
+            const identityOwner = extractPieceOwner(element);
+            let globalCaptures = gatherAllGlobalCaptures(matrix, playerSide);
+            let hasForcedCaptures = globalCaptures.length > 0;
+
+            if (serverState.forcedContinuousStriker) {
+                let requiredPos = serverState.forcedContinuousStriker;
+                if (r === requiredPos.r && c === requiredPos.c) {
+                    selectedRow = r; selectedCol = c;
+                    let cellData = globalCaptures.find(itm => itm.r === r && itm.c === c);
+                    precalculatedMoves = cellData ? cellData.options : [];
+                    applyOptimizedDOMDiffing();
+                } else executeIntentPath(r, c);
+                return;
+            }
+
+            if (identityOwner === playerSide) {
+                if (hasForcedCaptures) {
+                    let isAssignedForcedPiece = globalCaptures.some(itm => itm.r === r && itm.c === c);
+                    if (!isAssignedForcedPiece) return; 
+                    selectedRow = r; selectedCol = c;
+                    let cellData = globalCaptures.find(itm => itm.r === r && itm.c === c);
+                    precalculatedMoves = cellData ? cellData.options : [];
+                } else {
+                    selectedRow = r; selectedCol = c;
+                    precalculatedMoves = evaluateSlideOptionsForCell(matrix, r, c);
+                }
+                applyOptimizedDOMDiffing();
+            } else executeIntentPath(r, c);
+        }
+
+        function executeIntentPath(targetR, targetC) {
+            let matchedMove = precalculatedMoves.find(m => m.toR === targetR && m.toC === targetC);
+            if (!matchedMove) {
+                if (!serverState.forcedContinuousStriker) {
+                    selectedRow = null; selectedCol = null; precalculatedMoves = []; applyOptimizedDOMDiffing();
+                }
+                return;
+            }
+
+            // CRITICAL FIX: Anti-Cheat verification recalculated dynamically within atomic engine lock
+            sessionNode.transaction(state => {
+                if (!state) return null;
+                
+                // Security Check 1: Identity Token Verification Rule
+                const currentExpectedPlayerToken = (state.turn === PIECE_RED) ? state.playerRed : state.playerBlack;
+                if (currentExpectedPlayerToken !== localUid) return undefined; 
+                if (state.matchStatus !== "active") return undefined;
+
+                // Security Check 2: Dynamic Multi-jump Lock Validation
+                if (state.forcedContinuousStriker) {
+                    if (selectedRow !== state.forcedContinuousStriker.r || selectedCol !== state.forcedContinuousStriker.c) return undefined;
+                }
+
+                let matrix = state.board;
+                
+                // Security Check 3: Server-side validation parity recalculation
+                let verifiedGlobalCaptures = gatherAllGlobalCaptures(matrix, state.turn);
+                let serverHasForcedCaptures = verifiedGlobalCaptures.length > 0;
+                let calculatedServerOptions = [];
+
+                if (serverHasForcedCaptures) {
+                    let pData = verifiedGlobalCaptures.find(itm => itm.r === selectedRow && itm.c === selectedCol);
+                    calculatedServerOptions = pData ? pData.options : [];
+                } else {
+                    calculatedServerOptions = evaluateSlideOptionsForCell(matrix, selectedRow, selectedCol);
+                }
+
+                let serverMoveMatch = calculatedServerOptions.find(m => m.toR === targetR && m.toC === targetC);
+                if (!serverMoveMatch) return undefined; // Anti-cheat trigger: Block illegal move injectors
+
+                // Apply execution changes to server matrix structure
+                let activePiece = matrix[selectedRow][selectedCol];
+                matrix[selectedRow][selectedCol] = CELL_EMPTY;
+                
+                // Optimized Promotion check rules
+                if (activePiece === PIECE_RED && targetR === 0) activePiece = KING_RED;
+                if (activePiece === PIECE_BLACK && targetR === 7) activePiece = KING_BLACK;
+                matrix[targetR][targetC] = activePiece;
+
+                let wasCaptureMove = (serverMoveMatch.captureR !== null && serverMoveMatch.captureC !== null);
+                if (wasCaptureMove) matrix[serverMoveMatch.captureR][serverMoveMatch.captureC] = CELL_EMPTY;
+
+                if (wasCaptureMove) {
+                    let sequentialChainOptions = evaluateCaptureOptionsForCell(matrix, targetR, targetC);
+                    if (sequentialChainOptions.length > 0) {
+                        state.forcedContinuousStriker = { r: targetR, c: targetC };
+                        return state; 
+                    }
+                }
+
+                state.forcedContinuousStriker = null;
+                state.turn = (state.turn === PIECE_RED) ? PIECE_BLACK : PIECE_RED;
+                state.matchStatus = evaluateGameEndMetrics(matrix, state.turn);
+
+                return state;
+            }, (error, committed, snapshot) => {
+                if (committed) { selectedRow = null; selectedCol = null; precalculatedMoves = []; }
+            });
+        }
+
+        function evaluateGameEndMetrics(matrix, prospectiveTurnSide) {
+            let redPiecesRemaining = 0, blackPiecesRemaining = 0, counterTurnMovesAvailable = 0;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    let targetElement = matrix[r][c]; let owner = extractPieceOwner(targetElement);
+                    if (owner === PIECE_RED) redPiecesRemaining++;
+                    if (owner === PIECE_BLACK) blackPiecesRemaining++;
+                    if (owner === prospectiveTurnSide) {
+                        counterTurnMovesAvailable += (evaluateCaptureOptionsForCell(matrix, r, c).length + evaluateSlideOptionsForCell(matrix, r, c).length);
+                    }
+                }
+            }
+            if (redPiecesRemaining === 0) return "won_black"; if (blackPiecesRemaining === 0) return "won_red";
+            if (counterTurnMovesAvailable === 0) return (prospectiveTurnSide === PIECE_RED) ? "won_black" : "won_red";
+            return "active";
+        }
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            if (sessionNode) sessionNode.set(createDefaultSessionStructure());
+        });
+    </script>
 </body>
 </html>
